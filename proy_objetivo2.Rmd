@@ -1,0 +1,157 @@
+---
+title: "proy"
+author: "Maria"
+date: "2025-03-26"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Since the information originates from different sources, it was necessary to construct an integrated database combining the relevant variables for this analysis, using 2021 as the reference year. For this purpose, the country-level data corresponding to that year were extracted from the school dropout database, and the relevant indicators were incorporated from the second database. 
+```{r}
+datos=read.csv("datos_proy.csv",sep=";")
+```
+
+Given the presence of anomalous and incomplete data, countries with missing values in any of the key variables were excluded from the final dataset. This step ensured a consistent and reliable basis for the analysis. 
+
+Now we will analyze the variables individually to determine whether there are any anomalous data or if there are still missing values (NAs). 
+```{r}
+summary(datos$INVERSION)
+summary(datos$PIB)
+summary(datos$ABANDONO)
+
+datos= na.omit(datos)
+```
+
+
+In the variable (Dropout), we can see that there are no anomalous values. However, in the (GDP) variable, we observe two outliers. We decided not to remove them, as they represent the percentage of GDP allocated to education. Therefore, it is reasonable that some countries may choose to spend more or less depending on their priorities, and these values should not be considered erroneous. 
+```{r}
+hist(datos$ABANDONO)
+boxplot(datos$ABANDONO, xlab = "Dropout")
+
+hist(datos$PIB)
+boxplot(datos$PIB, xlab = "GDP")
+
+
+```
+
+
+To analyze both variables, the first step will be to calculate the correlation between them. The correlation value is 0.33, which indicates a positive but weak relationship. This means that, in general, as investment in education increases, the dropout rate tends to be slightly higher. This supports the idea that there is no strong or direct relationship between educational spending and school dropout rates.  
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(ggplot2)
+
+# Check correlation between dropout and GDP
+correlation <- cor(datos$ABANDONO, datos$PIB, use = "complete.obs", method = "pearson")
+cat("Correlation between dropout and GDP:", correlation, "\n")
+
+# Visualization (optional but useful)
+ggplot(datos, aes(x = PIB, y = ABANDONO, label = PAISES)) +
+  geom_point() +
+  geom_text(vjust = -0.5, size = 3) +
+  labs(
+    title = "Relationship between GDP per Capita Percentage and School Dropout",
+    x = "GDP per Capita Percentage",
+    y = "School Dropout Percentage"
+  ) +
+  theme_minimal()
+
+```
+
+We will now create a graph to visualize this relationship more clearly.
+```{r}
+library(ggplot2)
+
+library(ggrepel)  # for labels that don't overlap
+# Crear el gráfico
+ggplot(datos, aes(x = PIB, y = ABANDONO, label = PAISES)) +
+  geom_point(color = "darkred", size = 3) +
+  geom_text_repel() +  # Añade etiquetas sin superposición
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  labs(
+    title = "Relación entre la Inversión en Educación (% del PIB) y la Tasa de Abandono Escolar",
+    x = "Porcentaje del PIB invertido en educación",
+    y = "Tasa de abandono escolar (%)"
+  ) +
+  theme_minimal()
+
+```
+
+
+
+
+```{r}
+library(knitr)
+library(cluster)
+library(FactoMineR)
+library(factoextra)
+
+ 
+datos2= subset(datos, select = -c(INVERSION, PAISES))
+rownames(datos2) <- datos$PAISES    #asignar los nombres como id de cada fila
+
+midist <- get_dist(datos2, stand = FALSE, method = "euclidean")
+fviz_dist(midist, show_labels = TRUE, lab_size = 0.3,
+          gradient = list(low = "#00AFBB", mid = "white", high = "#FC4E07"))
+```
+We then carried out a clustering process with the aim of grouping countries that exhibit similar characteristics. To determine the optimal number of groups, we applied a k-means analysis.
+```{r}
+library(grid)
+library(gridExtra)
+
+p1 = fviz_nbclust(x = datos2, FUNcluster = kmeans, method = "silhouette", 
+             k.max = 10, verbose = FALSE) +
+  labs(title = "K-means")
+p2 = fviz_nbclust(x = datos2, FUNcluster = kmeans, method = "wss", 
+             k.max = 10, verbose = FALSE) +
+  labs(title = "K-means")
+grid.arrange(p1, p2, nrow = 1)
+```
+Initially, the silhouette index suggested that using 2 clusters would be most appropriate. However, after examining the sum of squares (SSE) plot, we decided to use 3 clusters for our analysis, as this number allows for a better distinction between the groups. 
+
+Finally, we proceed to visually represent these clusters with PCA to facilitate their interpretation. 
+```{r}
+# Asegura nombres correctos
+datos$PAISES <- as.character(datos$PAISES)
+rownames(datos) <- datos$PAISES
+
+# Variables numéricas
+datos2 <- datos[, !(names(datos) %in% c("PAISES", "INVERSION"))]
+
+# Clustering jerárquico
+library(factoextra)
+library(FactoMineR)
+midist <- get_dist(datos2, stand = FALSE, method = "euclidean")
+clust1 <- hclust(as.dist(midist), method = "ward.D2")
+grupos <- cutree(clust1, k = 3)
+
+# Agregar grupo
+datos_con_grupo <- datos2
+datos_con_grupo$Grupo <- as.factor(grupos)
+
+# PCA con grupo como variable cualitativa suplementaria
+miPCA <- PCA(datos_con_grupo, scale.unit = TRUE, 
+             quali.sup = ncol(datos_con_grupo), graph = FALSE)
+
+# Colores
+colores <- c("#00AFBB", "#FC4E07", "#E7B800")
+
+# Gráfico PCA con etiquetas en vez de puntos
+fviz_pca_ind(miPCA,
+             geom = "text",           # <--- Solo texto
+             habillage = "Grupo",     # Agrupación por cluster
+             addEllipses = TRUE,      # Elipses por grupo
+             palette = colores,
+             repel = TRUE)            # Evita superposición de etiquetas
+
+
+```
+
+
+
